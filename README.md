@@ -103,9 +103,19 @@ get isSubmitDisabled() {
             });
     }
 
-    processActionData(result) {
+    async processActionData(result) {
         if (result && result.length > 0) {
-            this.actionReviews = this.formatActionReviews(result);
+            // Using reference code pattern exactly as lead provided
+            this.actionReviews = await Promise.all((result || []).map(async ar => ({
+                ...ar,
+                fields: await this.decorateFieldsForDisplay(ar.fields),
+                // New functionality: Add object type detection for field display
+                objectType: ar.action.AF_Object_Name__c?.toLowerCase() || '',
+                isTaskObject: (ar.action.AF_Object_Name__c?.toLowerCase() === 'task'),
+                isOpportunityObject: (ar.action.AF_Object_Name__c?.toLowerCase() === 'opportunity'),
+                // New functionality: Add specific field display properties
+                ...this.getFieldDisplayProperties(ar.fields, ar.action.AF_Object_Name__c)
+            })));
             this.showReviewScreen = true;
         } else {
             this.actionReviews = [];
@@ -116,83 +126,93 @@ get isSubmitDisabled() {
         }
     }
 
-    /**
-     * Formats action review data for display in the UI
-     * Extracts task-specific fields (Subject, Due Date, Assigned To, Related To) 
-     * and prepares them for template rendering
-     * 
-     * @param {Array} actionResults - Array of action review objects from Apex
-     * @returns {Array} Formatted action review objects with display properties
-     */
-    formatActionReviews(actionResults) {
-        return (actionResults || []).map(ar => {
-            let subject = '';
-            let opportunity = '';
-            // Additional task field variables for our enhancement
-            let activityDate = '';
-            let ownerId = '';
-            let whatId = '';
-
-            if (ar.fields && Array.isArray(ar.fields)) {
-                ar.fields.forEach(f => {
-                    if ((f.apiName === 'Subject' || f.label === 'Subject') && f.value) {
-                        subject = f.value;
-                    }
-                    if ((f.apiName === 'Name' || f.label === 'Opportunity Name') && f.value) {
-                        opportunity = f.value;
-                    }
-                    
-                    // Enhanced: Extract task-specific fields for display
-                    if (f.apiName === 'ActivityDate' && f.value) {
-                        activityDate = f.value;
-                    }
-                    if (f.apiName === 'OwnerId' && f.value) {
-                        ownerId = f.value;
-                    }
-                    if (f.apiName === 'WhatId' && f.value) {
-                        whatId = f.value;
-                    }
-                });
+    // Using reference code method exactly as provided by lead
+    async decorateFieldsForDisplay(fields) {
+        return Promise.all(fields.map(async f => {
+            const field = { ...f };
+            
+            // Reference code pattern: Optionally replace OwnerId with user name
+            if (field.apiName === 'OwnerId' && field.value) {
+                field.label = 'Assigned To';
+                try {
+                    const userName = await getUserNameById({ userId: field.value });
+                    field.value = userName;
+                } catch (e) { /* ignore */ }
             }
+            
+            // Reference code pattern: If it's a date type or field name/label has 'date', format it
+            if (
+                (field.type && field.type.toLowerCase() === 'date') ||
+                (field.apiName && field.apiName.toLowerCase().includes('date')) ||
+                (field.label && field.label.toLowerCase().includes('date'))
+            ) {
+                field.displayValue = this.formatDateForDisplay(field.value);
+            }
+            
+            // New functionality: Enhanced for Opportunity Amount formatting
+            if (field.apiName === 'Amount' && field.value) {
+                field.displayValue = this.formatCurrency(field.value);
+            }
+            
+            // New functionality: AF_Product_group__c handling (commented for this org)
+            // if (field.apiName === 'AF_Product_group__c' && field.value) {
+            //     field.displayValue = field.value;
+            // }
+            
+            // Reference code pattern: Always set .uiValue to display in template
+            field.uiValue = field.displayValue || field.value;
+            
+            return field;
+        }));
+    }
 
-            let cardTitle = '';
-            if (opportunity) { cardTitle = opportunity; }
-            else if (subject) { cardTitle = subject; }
-            else { cardTitle = 'Follow-Up Action'; } // Using default instead of reviewTitle variable
-
-            let submitButtonLabel = 'Submit';
-            const apiName = (ar.action && ar.action.AF_Object_Name__c)
-                ? ar.action.AF_Object_Name__c.toLowerCase()
-                : '';
-
-            if (apiName === 'task') submitButtonLabel = 'Create Task'; // Using default instead of reviewTask variable
-            else if (apiName === 'opportunity') submitButtonLabel = 'Create Opportunity'; // Using default instead of reviewOpportunity variable
-
-            // Enhanced: Prepare display values for task fields with fallbacks
-            const displaySubject = subject || 'No subject';
-            const displayDueDate = activityDate ? this.formatDate(activityDate) : 'No due date';
-            const displayAssignedTo = ownerId || 'Not assigned';
-            const displayRelatedTo = whatId || 'Not related';
-
-            // Enhanced: Filter out task fields from otherFields since we display them separately
-            const otherFields = (ar.fields || []).filter(f =>
-                !((f.apiName === 'Subject' || f.label === 'Subject') ||
-                (f.apiName === 'OpportunityName' || f.label === 'Opportunity Name') ||
-                f.apiName === 'ActivityDate' || f.apiName === 'OwnerId' || f.apiName === 'WhatId')
-            );
-
-            return { 
-                ...ar, 
-                cardTitle, 
-                otherFields, 
-                submitButtonLabel,
-                // Enhanced: Add task field display properties
-                displaySubject,
-                displayDueDate,
-                displayAssignedTo,
-                displayRelatedTo
-            };
+    // New functionality: Extract specific field values for Task/Opportunity display
+    getFieldDisplayProperties(fields, objectType) {
+        const objectTypeLower = objectType?.toLowerCase() || '';
+        const fieldMap = {};
+        
+        // Build field lookup map
+        fields.forEach(f => {
+            fieldMap[f.apiName] = f;
         });
+        
+        const displayProps = {
+            cardTitle: 'Follow-Up Action',
+            submitButtonLabel: 'Submit'
+        };
+        
+        if (objectTypeLower === 'task') {
+            displayProps.submitButtonLabel = 'Create Task';
+            displayProps.hasTaskFields = true;
+            
+            // Task-specific field values using reference code uiValue pattern
+            displayProps.subjectValue = fieldMap['Subject']?.value || 'No subject';
+            displayProps.dueDateValue = fieldMap['ActivityDate']?.displayValue || fieldMap['ActivityDate']?.value || 'No due date';
+            displayProps.assignedToValue = fieldMap['OwnerId']?.value || 'Not assigned';
+            displayProps.relatedToValue = fieldMap['WhatId']?.value || 'Not related';
+            
+            // Set card title from subject
+            if (displayProps.subjectValue !== 'No subject') {
+                displayProps.cardTitle = displayProps.subjectValue;
+            }
+            
+        } else if (objectTypeLower === 'opportunity') {
+            displayProps.submitButtonLabel = 'Create Opportunity';
+            displayProps.hasOpportunityFields = true;
+            
+            // Opportunity-specific field values using reference code uiValue pattern
+            displayProps.nameValue = fieldMap['Name']?.value || 'No name';
+            displayProps.amountValue = fieldMap['Amount']?.displayValue || fieldMap['Amount']?.value || 'No amount';
+            displayProps.clientNameValue = fieldMap['AF_Client_Name__c']?.value || 'No client';
+            // displayProps.productGroupValue = fieldMap['AF_Product_group__c']?.value || 'No product group'; // For final org
+            
+            // Set card title from name
+            if (displayProps.nameValue !== 'No name') {
+                displayProps.cardTitle = displayProps.nameValue;
+            }
+        }
+        
+        return displayProps;
     }
 
     /**
@@ -216,20 +236,52 @@ get isSubmitDisabled() {
 
     /**
      * Formats date values for consistent display in the UI
+     * Enhanced version from reference code - converts YYYY-MM-DD to MM-DD-YYYY
      * 
-     * @param {String} dateValue - Date string from Salesforce
+     * @param {String} val - Date string from Salesforce
      * @returns {String} Formatted date string for display
      */
-    formatDate(dateValue) {
-        if (!dateValue) return '';
-        
-        try {
-            const date = new Date(dateValue);
-            return date.toLocaleDateString(); // Uses browser's locale formatting
-        } catch (error) {
-            console.warn('Date formatting failed for value:', dateValue, error);
-            return dateValue; // Return original value if parsing fails
+    formatDateForDisplay(val) {
+        if (!val) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+            const [year, month, day] = val.split('-');
+            return `${month}-${day}-${year}`;
         }
+        return val;
+    }
+
+    /**
+     * Formats currency values for Opportunity Amount display
+     * 
+     * @param {Number} amount - Currency amount
+     * @returns {String} Formatted currency string
+     */
+    formatCurrency(amount) {
+        if (!amount && amount !== 0) return '';
+        try {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD'
+            }).format(amount);
+        } catch (error) {
+            return amount.toString();
+        }
+    }
+
+    /**
+     * Gets readable name for WhatId (Related To field)
+     * Placeholder method - would need actual implementation based on object types
+     * 
+     * @param {String} recordId - Record ID to resolve
+     * @returns {String} Record name or fallback text
+     */
+    async getRelatedRecordName(recordId) {
+        if (!recordId) return 'Not related';
+        
+        // TODO: Implement actual record name resolution
+        // Would need to determine object type and query appropriate name field
+        // For now, return the ID as fallback
+        return recordId;
     }
 
     invokeAgentforce() {
