@@ -1,183 +1,328 @@
-<template>
-    <lightning-card>
-        <template if:true={isLoading}>
-            <lightning-spinner alternative-text="loading..." size="medium"></lightning-spinner>
-        </template>
-        <lightning-tabset active-tab-value="generative">
-            <lightning-tab label="Generative Actions" value="generative">
-                <div class="main-content slds-p-around_medium">
+.review-container {
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 1rem 1.5rem;
+    background: #fff;
+    margin-top: 1rem;
+}
 
-                    <!-- PHASE 1: Before Generate -->
-                    <template if:false={showReviewScreen}>
-                    <p class="page-intro slds-m-bottom_medium">
-                        Click 'Generate Actions' to let AI find recommended follow-up Actions.
-                    </p>
-                    <lightning-button 
-                        label="Generate Actions"
-                        variant="brand"
-                        onclick={invokeAgentforce}
-                        class="slds-m-bottom_x-large"
-                    ></lightning-button>
-                    </template>
+.review-title {
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+}
 
-                    <!-- PHASE 2: After Generate -->
-                    <template if:true={showReviewScreen}>
-                        <div class="review-info-msg slds-m-bottom_medium">
-                            Here are AI recommended follow-up actions
-                        </div>
-                        <template for:each={visibleActionReviews} for:item="ar" for:index="idx">
-                            <div key={ar.action.Id} class="review-container slds-box">
-                                <lightning-button-icon
-                                    icon-name="utility:close"
-                                    alternative-text="Close"
-                                    title="Close"
-                                    variant="bare"
-                                    size="medium"
-                                    class="close-btn"
-                                    data-action-id={ar.action.Id}
-                                    onclick={handleCloseAction}>
-                                </lightning-button-icon>
-                                <!-- Card Title: Dynamic based on object type -->
-                                <div class="card-title">{ar.cardTitle}</div>
-                                
-                                <!-- Task Details Section -->
-                                <template if:true={ar.isTaskObject}>
-                                    <template if:true={ar.hasTaskFields}>
-                                        <div class="task-details slds-m-top_small slds-m-bottom_small">
-                                            <div class="task-field">
-                                                <span class="field-label">Subject:</span>
-                                                <span class="field-value">{ar.subjectValue}</span>
-                                            </div>
-                                            <div class="task-field">
-                                                <span class="field-label">Due Date:</span>
-                                                <span class="field-value">{ar.dueDateValue}</span>
-                                            </div>
-                                            <div class="task-field">
-                                                <span class="field-label">Assigned To:</span>
-                                                <span class="field-value">{ar.assignedToValue}</span>
-                                            </div>
-                                            <div class="task-field">
-                                                <span class="field-label">Related To:</span>
-                                                <span class="field-value">{ar.relatedToValue}</span>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </template>
+.object-label {
+    font-weight: bold;
+    color: #275bb9;
+    margin-bottom: 0.7rem;
+    display: block;
+}
 
-                                <!-- Opportunity Details Section -->
-                                <template if:true={ar.isOpportunityObject}>
-                                    <template if:true={ar.hasOpportunityFields}>
-                                        <div class="task-details slds-m-top_small slds-m-bottom_small">
-                                            <div class="task-field">
-                                                <span class="field-label">Name:</span>
-                                                <span class="field-value">{ar.nameValue}</span>
-                                            </div>
-                                            <div class="task-field">
-                                                <span class="field-label">Amount:</span>
-                                                <span class="field-value">{ar.amountValue}</span>
-                                            </div>
-                                            <div class="task-field">
-                                                <span class="field-label">Client Name:</span>
-                                                <span class="field-value">{ar.clientNameValue}</span>
-                                            </div>
-                                            <!-- Product Group Field (commented for this org - exists in final org) -->
-                                            <!-- <div class="task-field">
-                                                <span class="field-label">Product Group:</span>
-                                                <span class="field-value">{ar.productGroupValue}</span>
-                                            </div> -->
-                                        </div>
-                                    </template>
-                                </template>
-                                
-                                <div class="button-row">
-                                    <div class="button-area">
-                                        <lightning-button
-                                            label={ar.submitButtonLabel}
-                                            variant="neutral"
-                                            data-index={idx}
-                                            onclick={handleSubmit}>
-                                        </lightning-button>
-                                    </div>
-                                    <div class="relative-container">
-                                        <!-- Thumbs Up Button: Shows success toast when clicked -->
-                                        <lightning-button-icon
-                                            icon-name="utility:like"
-                                            alternative-text={thumbsUpLabel}
-                                            title={thumbsUpLabel}
-                                            variant="container"
-                                            size="medium"
-                                            data-action-id={ar.action.Id}
-                                            onclick={handleThumbsUp}
-                                            class="thumb-btn"
-                                            >
-                                        </lightning-button-icon>
-                                        <!-- Thumbs Down Button: Opens detailed feedback modal when clicked -->
-                                        <!-- Button turns blue when modal is open using dynamic thumbsDownClass -->
+.field-list {
+    margin-bottom: 1rem;
+    margin-top: 0;
+}
 
-                                            <lightning-button-icon
-                                                icon-name="utility:dislike"
-                                                alternative-text={thumbsDownLabel}
-                                                title={thumbsDownLabel}
-                                                variant="container"
-                                                data-action-id={ar.action.Id}
-                                                onclick={handleThumbsDown}
-                                                class="thumb-btn">
-                                            </lightning-button-icon>
-                                            <section class="slds-popover slds-popover_tooltip custom-feedback-popover custom-overflow slds-hide" 
-                                                role="dialog" data-pop-id={ar.action.Id}>
-                                                        <div class="relative-container">
-                                                            <span class="slds-p-top_medium slds-p-left_medium slds-p-right_medium custom-heading-font">
-                                                                <span class="slds-required">*</span>{whyNotHelpful} </span>                                                            
-                                                                <lightning-helptext class="custom-helptext-padding slds-p-bottom_small" content={feedbackHelpText}></lightning-helptext>
-                                                                <lightning-button-icon
-                                                                    icon-name="utility:close"
-                                                                    alternative-text={closeLabel}
-                                                                    title={closeLabel}
-                                                                    variant="bare"
-                                                                    size="small"
-                                                                    data-action-id={ar.action.Id}
-                                                                    class="slds-float_right custom-padding-left slds-p-top_x-small"
-                                                                    onclick={handleCancelFeedback}>
-                                                                </lightning-button-icon>
-                                                        </div>
-                                                <div class="slds-popover__body">
-                                                    <fieldset class="slds-form-element">
-                                                        <div class="slds-form-element__control">
-                                                            <template for:each={feedbackOptions} for:item="option">
-                                                                <div key={option.value} class="relative-container">
-                                                                    <lightning-input type="checkbox" variant="label-hidden" name={option.value} data-checkbox-id={option.value} value={option.value} onchange={handleCheckboxChange}></lightning-input>
-                                                                    <label class="slds-form-element__label" for={option.value}>{option.label}</label>
-                                                                </div>
-                                                            </template>
-                                                        </div>
-                                                    </fieldset>
-                                                    <label class="slds-form-element__label custom-heading-font slds-p-top_small" for="feedbackTextarea">{tellUsMore}</label>
-                                                    <lightning-textarea name="feedbackTextarea" class="custom-textarea-font" variant="label-hidden" placeholder={feedbackPlaceholder} value={feedbackText} onchange={handleFeedbackTextChange}></lightning-textarea>
-                                                </div>
-                                                <footer class="slds-popover__footer">
-                                                    <button class="slds-button slds-button_neutral" data-action-id={ar.action.Id} onclick={handleCancelFeedback}>{cancelLabel}</button>
-                                                    <button class="slds-button slds-button_brand" disabled={isSubmitDisabled} onclick={handleSubmitFeedback}>{submitLabel}</button>
-                                                </footer>
-                                            </section>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                        <lightning-button 
-                            icon-name="utility:sparkles"
-                            label="Regenerate"
-                            variant="brand"
-                            onclick={invokeAgentforce}
-                            class="regen-btn"
-                        ></lightning-button>
-                    </template>
-                    <template if:true={submitError}>
-                        <div class="slds-box slds-theme_error slds-m-top_medium error-banner">
-                            <span>{submitError}</span>
-                        </div>
-                    </template>
-                </div>
-            </lightning-tab>
-        </lightning-tabset>
-    </lightning-card>
-</template>
+.field-row {
+    margin-bottom: 0.45rem;
+}
+
+.field-label {
+    font-weight: bold;
+    margin-right: 0.3rem;
+}
+
+.field-separator {
+    margin-right: 0.25rem;
+    color: #666;
+}
+
+.field-value {
+    color: #222;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.button-area {
+    margin-top: 1rem;
+}
+
+.no-recommendations-container {
+    background-color: #f3f3f3;
+    border: 1px solid #d8d8d8;
+    border-radius: 4px;
+    padding: 1.5rem;
+    margin-top: 1rem;
+    text-align: left;
+}
+
+.no-recommendations-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #3e3e3c;
+    margin-bottom: 0.75rem;
+}
+
+.no-recommendations-message {
+    font-size: 0.875rem;
+    color: #706e6b;
+    line-height: 1.5;
+}
+
+.card-title {
+    font-family: "Salesforce Sans", Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #181818;
+    margin-bottom: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.review-info-msg {
+    font-family: "Salesforce Sans", Arial, sans-serif;
+    font-size: 13px;
+    font-weight: 400;
+    color: #1b263c; /* Salesforce SLDS Core Text Default */
+    margin-bottom: 1rem;
+}
+
+.review-container.slds-box {
+    margin-bottom: 1rem;
+    background: #fff;
+    border: 1px solid #d8dde6;
+    border-radius: 0.25rem;
+    padding: 1rem 1.5rem 1rem 1.5rem;
+    position: relative;
+}
+
+.close-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 1;
+}
+
+.button-area {
+    margin-bottom: 0.5rem;
+    margin-top: 0;
+}
+
+.regen-btn {
+    margin-top: 1rem;
+}
+
+/* Task Details Styling - Enhancement for displaying task fields in follow-up actions */
+/* Added to support inline display of Subject, Due Date, Assigned To, Related To fields */
+
+.task-details {
+    background-color: transparent; /* Seamless integration with existing white background */
+}
+
+/* Individual task field container - displays label and value inline */
+.task-field {
+    margin-bottom: 0.5rem; /* Spacing between field rows */
+}
+
+.task-field:last-child {
+    margin-bottom: 0; /* Remove margin from last field to prevent extra space */
+}
+
+/* Field label styling - bold labels for "Subject:", "Due Date:", etc. */
+.field-label {
+    font-weight: 600; /* Semi-bold for emphasis */
+    color: #3e3e3c; /* Salesforce standard text color for labels */
+    margin-right: 0.25rem; /* Small gap between label and value */
+}
+
+/* Field value styling - actual data like "Call Ben", "8/5/2026", etc. */
+.field-value {
+    color: #181818; /* Salesforce standard text color for values */
+}
+
+.regen-btn .slds-button__icon {
+    width: 2rem !important;    /* Default is 1rem */
+    height: 2rem !important;
+    font-size: 2rem !important;
+    fill: #0176d3 !important;  /* Salesforce blue */
+}
+
+.button-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.relative-container {
+    display: flex;                         
+    position: relative;               
+}
+
+.thumb-btn {
+    padding: 2px;    
+    align-items: center; 
+    justify-content: center; 
+}
+
+.thumb-btn .slds-button__icon { 
+    width: 1rem;                
+    height: 1rem;
+}
+
+/* Feedback Tooltip Popover Styles */
+.custom-feedback-popover {
+    position: absolute;
+    top: calc(100% + 0.125rem);
+    right: -0.5rem;
+    z-index: 9001;
+    width: 320px;
+    max-width: 90vw;
+    box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.15);
+    background-color: #ffffff;
+    border: 1px solid #d8dde6;
+    border-radius: 0.25rem;
+}
+
+/* Caret/Arrow pointing up to thumbs down icon */
+.custom-feedback-popover::before {
+    content: '';
+    position: absolute;
+    top: -0.5rem;
+    right: 1rem;
+    width: 0;
+    height: 0;
+    border-left: 0.5rem solid transparent;
+    border-right: 0.5rem solid transparent;
+    border-bottom: 0.5rem solid #d8dde6;
+}
+
+.custom-feedback-popover::after {
+    content: '';
+    position: absolute;
+    top: -0.4375rem;
+    right: 1rem;
+    width: 0;
+    height: 0;
+    border-left: 0.5rem solid transparent;
+    border-right: 0.5rem solid transparent;
+    border-bottom: 0.5rem solid #ffffff;
+}
+
+.custom-feedback-popover .slds-popover__header {
+    background-color: #ffffff;
+    border-bottom: 1px solid #d8dde6;
+    padding: 0.75rem 1rem;
+}
+
+.custom-feedback-popover .slds-popover__body {
+    background-color: #ffffff;
+    padding: 1rem;
+}
+
+.custom-feedback-popover .slds-popover__footer {
+    background-color: #ffffff;
+    border-top: 1px solid #d8dde6;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.custom-feedback-popover .slds-form-element__legend {
+    color: #3e3e3c;
+    font-size: 0.875rem;
+    font-weight: 400;
+}
+
+.custom-feedback-popover .slds-text-title_bold {
+    color: #181818;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+
+.slds-checkbox {
+    position: relative;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.slds-checkbox input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    border: 0;
+    clip: rect(0 0 0 0);
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+}
+
+.slds-checkbox__label {
+    display: flex;
+    align-items: flex-start;
+    cursor: pointer;
+    font-size: 0.875rem;
+    line-height: 1.25;
+}
+
+.slds-checkbox__faux {
+    width: 1rem;
+    height: 1rem;
+    display: inline-block;
+    position: relative;
+    flex-shrink: 0;
+    border: 1px solid #c9c7c5;
+    border-radius: 0.125rem;
+    background: #fff;
+    margin-right: 0.5rem;
+    margin-top: 0.125rem;
+}
+
+.slds-checkbox input:checked + label .slds-checkbox__faux {
+    background: #0176d3;
+    border-color: #0176d3;
+}
+
+.slds-checkbox input:checked + label .slds-checkbox__faux::after {
+    content: '';
+    position: absolute;
+    top: 0.125rem;
+    left: 0.25rem;
+    width: 0.25rem;
+    height: 0.5rem;
+    border: 2px solid #fff;
+    border-top: 0;
+    border-left: 0;
+    transform: rotate(45deg);
+}
+
+.slds-form-element__legend {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.slds-modal__content {
+    max-height: 60vh;
+}
+
+.custom-overflow{
+    z-index: 1000;
+}
+
+.custom-heading-font{
+    font-weight: bold;
+}
+
+.custom-helptext-padding{
+    padding-top:14px
+}
+
+.custom-padding-left{
+    padding-left: 100px;
+}
+
+.custom-textarea-font{
+    color: #444444;
+}
