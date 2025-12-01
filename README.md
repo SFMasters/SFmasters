@@ -121,6 +121,7 @@ global with sharing class AF_MeetingNoteActionCreator {
                 System.debug('Final decision - shouldCreateAction: ' + shouldCreateAction);
                 
                 if (shouldCreateAction) {
+                    System.debug('CREATING ACTION for ObjectApiName: ' + request.objectApiName);
                     AF_Meeting_Note_Action__c action = new AF_Meeting_Note_Action__c(
                         AF_Record_ID__c     = request.relatedRecordId,
                         AF_Object_Name__c   = request.objectApiName,
@@ -130,18 +131,31 @@ global with sharing class AF_MeetingNoteActionCreator {
                     );
                     actionsToInsert.add(action);
                     requestByIndex.put(index, request);
+                    System.debug('Added action to insert list. Current actionsToInsert size: ' + actionsToInsert.size());
                     index++;
                 } else {
+                    System.debug('*** NOT CREATING ACTION *** for ObjectApiName: ' + request.objectApiName + ' - FILTERED OUT');
                     // Create a response for the filtered request
                     Response filteredResponse = new Response();
                     filteredResponse.message = 'Opportunity creation not allowed for Contact-only or Lead-only meeting notes';
                     filteredResponse.tempActionId = null;
                     responses.add(filteredResponse);
+                    System.debug('Added filtered response. Current responses size: ' + responses.size());
                 }
             }
             
+            System.debug('Total actions to insert: ' + actionsToInsert.size());
+            System.debug('Actions to insert details:');
+            for(AF_Meeting_Note_Action__c action : actionsToInsert) {
+                System.debug('- Action ObjectType: ' + action.AF_Object_Name__c + ', ActionName: ' + action.AF_Action_Name__c);
+            }
+            
             if (!actionsToInsert.isEmpty()) {
+                System.debug('Performing bulk insert of ' + actionsToInsert.size() + ' actions');
                 insert actionsToInsert;
+                System.debug('Bulk insert completed successfully');
+            } else {
+                System.debug('*** NO ACTIONS TO INSERT - All were filtered out ***');
             }
         } catch (Exception ex) {
             for (Request req : requests) {
