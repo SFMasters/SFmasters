@@ -40,6 +40,9 @@ global with sharing class AF_MeetingNoteActionCreator {
      */
     @InvocableMethod(Label='Meeting Note Action Creator' description='Always creates new temp actions from a Meeting Note')
     global static List<Response> createAction(List<Request> requests) {
+        System.debug('*** AF_MeetingNoteActionCreator.createAction - START ***');
+        System.debug('Number of requests received: ' + requests.size());
+        
         List<Response> responses = new List<Response>();
         List<AF_Meeting_Note_Action__c> actionsToInsert = new List<AF_Meeting_Note_Action__c>();
         Map<Integer, Request> requestByIndex = new Map<Integer, Request>();
@@ -51,10 +54,12 @@ global with sharing class AF_MeetingNoteActionCreator {
             // Get source task information to determine filtering logic
             Set<String> taskIds = new Set<String>();
             for (Request request : requests) {
+                System.debug('Processing request - ObjectApiName: ' + request.objectApiName + ', TaskId: ' + request.taskId);
                 if (String.isNotBlank(request.taskId)) {
                     taskIds.add(request.taskId);
                 }
             }
+            System.debug('Unique Task IDs collected: ' + taskIds);
             
             // Query source tasks to get WhoId and WhatId information
             Map<String, Task> sourceTaskMap = new Map<String, Task>();
@@ -64,35 +69,56 @@ global with sharing class AF_MeetingNoteActionCreator {
                                 WHERE Id IN :taskIds 
                                 LIMIT 1000]) {
                     sourceTaskMap.put(task.Id, task);
+                    System.debug('Found Task - ID: ' + task.Id + ', WhoId: ' + task.WhoId + ', WhatId: ' + task.WhatId);
                 }
             }
+            System.debug('Total Tasks queried: ' + sourceTaskMap.size());
             
             //Build AF_Meeting_Note_Action__c records from requests with filtering logic
             for (Request request : requests) {
+                System.debug('--- Processing Request ---');
+                System.debug('ObjectApiName: ' + request.objectApiName);
+                System.debug('TaskId: ' + request.taskId);
+                
                 boolean shouldCreateAction = true;
                 
                 // Check if this is an Opportunity request that should be filtered
                 if (String.isNotBlank(request.objectApiName) && 
                     request.objectApiName.equalsIgnoreCase('Opportunity')) {
                     
+                    System.debug('This is an Opportunity request - checking filtering conditions');
+                    
                     Task sourceTask = sourceTaskMap.get(request.taskId);
+                    System.debug('Source Task found: ' + (sourceTask != null));
+                    
                     if (sourceTask != null && sourceTask.WhoId != null) {
                         String whoIdString = String.valueOf(sourceTask.WhoId);
+                        System.debug('WhoId: ' + whoIdString + ', WhatId: ' + sourceTask.WhatId);
                         
                         // Check for Contact-only scenario: WhoId starts with '003' and WhatId is null
                         boolean isContactOnly = (whoIdString.startsWith('003') && sourceTask.WhatId == null);
+                        System.debug('Is Contact-only scenario: ' + isContactOnly);
                         
                         // Check for Lead-only scenario: WhoId starts with '00Q' and WhatId is null
                         boolean isLeadOnly = (whoIdString.startsWith('00Q') && sourceTask.WhatId == null);
+                        System.debug('Is Lead-only scenario: ' + isLeadOnly);
                         
                         // Don't create Opportunity actions for Contact-only or Lead-only meeting notes
                         if (isContactOnly || isLeadOnly) {
                             shouldCreateAction = false;
                             String recordType = isContactOnly ? 'Contact' : 'Lead';
-                            System.debug('Filtering out Opportunity request for ' + recordType + '-only meeting note. Task ID: ' + sourceTask.Id);
+                            System.debug('*** FILTERING OUT OPPORTUNITY *** - ' + recordType + '-only meeting note. Task ID: ' + sourceTask.Id);
+                        } else {
+                            System.debug('Opportunity request ALLOWED - not Contact-only or Lead-only scenario');
                         }
+                    } else {
+                        System.debug('Source Task not found or WhoId is null - allowing Opportunity request');
                     }
+                } else {
+                    System.debug('Not an Opportunity request - proceeding normally');
                 }
+                
+                System.debug('Final decision - shouldCreateAction: ' + shouldCreateAction);
                 
                 if (shouldCreateAction) {
                     AF_Meeting_Note_Action__c action = new AF_Meeting_Note_Action__c(
