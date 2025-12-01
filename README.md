@@ -26,7 +26,7 @@ global with sharing class AF_MeetingNoteActionCreator {
         global String actionName;
     }
 
-    //Wrapper for storing reponse details from the agent
+    //Wrapper for storing reponse details from the agent 
     global class Response {
         @InvocableVariable global String message;
         @InvocableVariable global String tempActionId;
@@ -48,20 +48,75 @@ global with sharing class AF_MeetingNoteActionCreator {
         Integer index = 0;
 
         try {
-            //Build AF_Meeting_Note_Action__c records from all requests
+            // Get source task information to determine filtering logic
+            Set<String> taskIds = new Set<String>();
             for (Request request : requests) {
-                AF_Meeting_Note_Action__c action = new AF_Meeting_Note_Action__c(
-                    AF_Record_ID__c     = request.relatedRecordId,
-                    AF_Object_Name__c   = request.objectApiName,
-                    AF_Status__c        = REVIEW_STATUS,
-                    AF_Action_Name__c   = request.actionName,
-                    AF_Meeting_Note__c  = request.taskId
-                );
-                actionsToInsert.add(action);
-                requestByIndex.put(index, request);
-                index++;
+                if (String.isNotBlank(request.taskId)) {
+                    taskIds.add(request.taskId);
+                }
             }
-            insert actionsToInsert;
+            
+            // Query source tasks to get WhoId and WhatId information
+            Map<String, Task> sourceTaskMap = new Map<String, Task>();
+            if (!taskIds.isEmpty()) {
+                for (Task task : [SELECT Id, WhoId, WhatId 
+                                FROM Task 
+                                WHERE Id IN :taskIds 
+                                LIMIT 1000]) {
+                    sourceTaskMap.put(task.Id, task);
+                }
+            }
+            
+            //Build AF_Meeting_Note_Action__c records from requests with filtering logic
+            for (Request request : requests) {
+                boolean shouldCreateAction = true;
+                
+                // Check if this is an Opportunity request that should be filtered
+                if (String.isNotBlank(request.objectApiName) && 
+                    request.objectApiName.equalsIgnoreCase('Opportunity')) {
+                    
+                    Task sourceTask = sourceTaskMap.get(request.taskId);
+                    if (sourceTask != null && sourceTask.WhoId != null) {
+                        String whoIdString = String.valueOf(sourceTask.WhoId);
+                        
+                        // Check for Contact-only scenario: WhoId starts with '003' and WhatId is null
+                        boolean isContactOnly = (whoIdString.startsWith('003') && sourceTask.WhatId == null);
+                        
+                        // Check for Lead-only scenario: WhoId starts with '00Q' and WhatId is null
+                        boolean isLeadOnly = (whoIdString.startsWith('00Q') && sourceTask.WhatId == null);
+                        
+                        // Don't create Opportunity actions for Contact-only or Lead-only meeting notes
+                        if (isContactOnly || isLeadOnly) {
+                            shouldCreateAction = false;
+                            String recordType = isContactOnly ? 'Contact' : 'Lead';
+                            System.debug('Filtering out Opportunity request for ' + recordType + '-only meeting note. Task ID: ' + sourceTask.Id);
+                        }
+                    }
+                }
+                
+                if (shouldCreateAction) {
+                    AF_Meeting_Note_Action__c action = new AF_Meeting_Note_Action__c(
+                        AF_Record_ID__c     = request.relatedRecordId,
+                        AF_Object_Name__c   = request.objectApiName,
+                        AF_Status__c        = REVIEW_STATUS,
+                        AF_Action_Name__c   = request.actionName,
+                        AF_Meeting_Note__c  = request.taskId
+                    );
+                    actionsToInsert.add(action);
+                    requestByIndex.put(index, request);
+                    index++;
+                } else {
+                    // Create a response for the filtered request
+                    Response filteredResponse = new Response();
+                    filteredResponse.message = 'Opportunity creation not allowed for Contact-only or Lead-only meeting notes';
+                    filteredResponse.tempActionId = null;
+                    responses.add(filteredResponse);
+                }
+            }
+            
+            if (!actionsToInsert.isEmpty()) {
+                insert actionsToInsert;
+            }
         } catch (Exception ex) {
             for (Request req : requests) {
                 Response errorResponse = new Response();
@@ -131,4 +186,3 @@ global with sharing class AF_MeetingNoteActionCreator {
         return responses;
     }
 }
-
