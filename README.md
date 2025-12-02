@@ -63,7 +63,7 @@ global with sharing class AF_MeetingNoteActionCreator {
             System.debug('Unique Task IDs collected: ' + taskIds);
 
             // JIRA-265: Query source meeting note tasks to get WhoId and WhatId information
-            // This SOQL is required for filtering logic - no existing query provides this datan
+            // This SOQL is required for filtering logic - no existing query provides this data
             Map<Id, Task> sourceTaskMap = new Map<Id, Task>();
             if (!taskIds.isEmpty()) {
                 for (Task task : [SELECT Id, WhoId, WhatId
@@ -83,7 +83,7 @@ global with sharing class AF_MeetingNoteActionCreator {
                 System.debug('TaskId: ' + request.taskId);
 
                 //US-58 start
-                Boolean skip = false;
+                boolean skip = false;
                 String skipMessage = '';
                 String eventType = '';
                 String eventDateStr = '';
@@ -99,16 +99,15 @@ global with sharing class AF_MeetingNoteActionCreator {
                     Task sourceTask = sourceTaskMap.get(request.taskId);
                     System.debug('Source Task found: ' + (sourceTask != null));
 
-                    if (sourceTask != null && sourceTask.WhoId != null) {
-                        String whoIdString = String.valueOf(sourceTask.WhoId);
-                        System.debug('WhoId: ' + whoIdString + ', WhatId: ' + sourceTask.WhatId);
+                    if (sourceTask != null && whoId != null) {
+                        System.debug('WhoId: ' + whoId + ', WhatId: ' + sourceTask.WhatId);
 
                         // JIRA-265: Contact-only scenario - WhoId is Contact (003xxx) and WhatId is null
-                        boolean isContactOnly = (whoIdString.startsWith('003') && sourceTask.WhatId == null);
+                        boolean isContactOnly = (whoId.startsWith('003') && sourceTask.WhatId == null);
                         System.debug('Is Contact-only scenario: ' + isContactOnly);
 
                         // JIRA-265: Lead-only scenario - WhoId is Lead (00Qxxx) and WhatId is null
-                        boolean isLeadOnly = (whoIdString.startsWith('00Q') && sourceTask.WhatId == null);
+                        boolean isLeadOnly = (whoId.startsWith('00Q') && sourceTask.WhatId == null);
                         System.debug('Is Lead-only scenario: ' + isLeadOnly);
 
                         // JIRA-265: Skip Opportunity creation for Contact-only or Lead-only meeting notes
@@ -120,14 +119,14 @@ global with sharing class AF_MeetingNoteActionCreator {
                         }
                     }
                 }
-                //System.debug('Final decision - shouldCreateAction: ' + shouldCreateAction);
 
+                // US-58: PersonLifeEvent filtering logic
                 if (request.objectApiName == 'PersonLifeEvent') {
-                    System.debug('objectApiName'+request.objectApiName);
+                    System.debug('objectApiName: ' + request.objectApiName);
                     if ((whoId != null && whoId.startsWith('00Q')) || whoId == null) {
                         skip = true;
                         skipMessage = 'Skipped: WhoId is a Lead. Action not created.';
-                        System.debug('skipmsg'+skipMessage);
+                        System.debug('skipMessage: ' + skipMessage);
                     } else if (whoId != null && whoId.startsWith('003')) {
                         // Only for Contacts
                         // Extract EventType and EventDate from JSON
@@ -145,7 +144,11 @@ global with sharing class AF_MeetingNoteActionCreator {
                         // Simple duplicate check
                         if (eventType != '' && eventDateStr != '') {
                             Date eventDate;
-                            try { eventDate = Date.valueOf(eventDateStr); } catch(Exception e) { eventDate = null; }
+                            try { 
+                                eventDate = Date.valueOf(eventDateStr); 
+                            } catch(Exception e) { 
+                                eventDate = null; 
+                            }
                             if (eventDate != null) {
                                 List<PersonLifeEvent> foundEvents = [
                                     SELECT Id FROM PersonLifeEvent
@@ -269,4 +272,3 @@ global with sharing class AF_MeetingNoteActionCreator {
         return responses;
     }
 }
-
