@@ -1,119 +1,92 @@
-/******************************************************************************************
- * @Description: * utility Factory for test data creation
- * @Author: Arya Shah (Deloitte USI)
- * @Date : 10-Nov-2025
- * @Test Class: 
- * ******************************************************************************************
- * ModificationLog      Developer           CodeReview          Date            Description
- * 1.0                  Arya Shah                               10-Nov-2025     Initial Version
- * ******************************************************************************************/
-@isTest
-public with sharing class AF_TestDataFactory {
-    //Creates and inserts an Account.
-    public static Account createAccount(Map<String, Object> accInputMap){
-        Account acc = new Account(Name = 'Test Account');
-        if (accInputMap != null){
-            for (String key : accInputMap.keySet()){
-                acc.put(key, accInputMap.get(key));
+ //Creates and inserts a Lead.
+    public static Lead createLead(Map<String, Object> leadInputMap){
+        Lead lead = new Lead(
+            FirstName = 'Test',
+            LastName = 'Lead',
+            Company = 'Test Company'
+        );
+        if(leadInputMap != null){
+            for (String key : leadInputMap.keySet()){
+                lead.put(key, leadInputMap.get(key));
             }
         }
-        insert acc;
-        return acc;
+        insert lead;
+        return lead;
+    }
+	
+	
+	
+	
+	
+	// Helper method to create request objects - reduces repetition
+    private static AF_MeetingNoteActionCreator.Request createMeetingNoteActionRequest(
+        String objectApiName, String taskId, String relatedRecordId, String actionName, String fieldData) {
+        AF_MeetingNoteActionCreator.Request req = new AF_MeetingNoteActionCreator.Request();
+        req.objectApiName = objectApiName;
+        req.taskId = taskId;
+        req.relatedRecordId = relatedRecordId;
+        req.actionName = actionName;
+        req.fieldApiNameToValueJSON = fieldData;
+        return req;
     }
 
-    //Creates and inserts a Contact for a given Account
-    public static Contact createContact(Map<String, Object> conInputMap, Id accountId){
-        Contact con = new Contact(LastName = 'Test Contact', AccountId = accountId);
-        if (conInputMap != null){
-            for(String key : conInputMap.keySet()){
-                con.put(key, conInputMap.get(key));
-            }
+    // JIRA-265: Ultimate optimized test - all filtering scenarios with user context
+    @isTest
+    static void testJIRA265_OpportunityFiltering_AllScenarios() {
+        User testUser = AF_TestDataFactory.createUser(new Map<String, Object>{'LastName' => 'JIRA265 User'});
+        
+        System.runAs(testUser) {
+            Account acc = AF_TestDataFactory.createAccount(new Map<String, Object>{'Name' => 'JIRA265 Test Account'});
+            Contact testContact = AF_TestDataFactory.createContact(new Map<String, Object>{'FirstName' => 'JIRA265'}, acc.Id);
+            Lead testLead = AF_TestDataFactory.createLead(new Map<String, Object>{'FirstName' => 'JIRA265', 'LastName' => 'Lead'});
+            
+            // Create different task scenarios using factory
+            Task contactOnlyTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Contact-only Meeting', 'WhoId' => testContact.Id, 'WhatId' => null
+            });
+            Task leadOnlyTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Lead-only Meeting', 'WhoId' => testLead.Id, 'WhatId' => null
+            });
+            Task contactAccountTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Contact+Account Meeting', 'WhoId' => testContact.Id, 'WhatId' => acc.Id
+            });
+
+            String oppFieldJSON = JSON.serialize(new List<Object>{new Map<String, Object>{'Name' => 'Test Opportunity'}});
+            String taskFieldJSON = JSON.serialize(new List<Object>{new Map<String, Object>{'Subject' => 'Follow-up Task'}});
+            
+            // Use helper method to create requests - eliminates repetition
+            List<AF_MeetingNoteActionCreator.Request> requests = new List<AF_MeetingNoteActionCreator.Request>{
+                createMeetingNoteActionRequest('Opportunity', String.valueOf(contactOnlyTask.Id), String.valueOf(acc.Id), 'Contact-only Opportunity', oppFieldJSON),
+                createMeetingNoteActionRequest('Opportunity', String.valueOf(leadOnlyTask.Id), String.valueOf(acc.Id), 'Lead-only Opportunity', oppFieldJSON),
+                createMeetingNoteActionRequest('Opportunity', String.valueOf(contactAccountTask.Id), String.valueOf(acc.Id), 'Allowed Opportunity', oppFieldJSON),
+                createMeetingNoteActionRequest('Task', String.valueOf(contactOnlyTask.Id), String.valueOf(acc.Id), 'Contact-only Task', taskFieldJSON)
+            };
+
+            Test.startTest();
+            List<AF_MeetingNoteActionCreator.Response> responses = AF_MeetingNoteActionCreator.createAction(requests);
+            Test.stopTest();
+
+            // Optimized assertions - descriptive and debuggable
+            System.assertEquals(4, responses.size(), 'Should have 4 responses');
+            
+            // Scenario 1: Contact-only + Opportunity → Blocked
+            System.assert(responses[0].message.contains('Skipped: Opportunity creation not allowed'), 
+                         'Contact-only Opportunity should be blocked');
+            System.assertEquals(null, responses[0].tempActionId, 'Contact-only Opportunity should have null tempActionId');
+            
+            // Scenario 2: Lead-only + Opportunity → Blocked  
+            System.assert(responses[1].message.contains('Skipped: Opportunity creation not allowed'), 
+                         'Lead-only Opportunity should be blocked');
+            System.assertEquals(null, responses[1].tempActionId, 'Lead-only Opportunity should have null tempActionId');
+            
+            // Scenario 3: Contact+Account + Opportunity → Allowed
+            System.assertEquals('Successfully created the temp action!', responses[2].message, 
+                               'Contact+Account Opportunity should succeed');
+            System.assertNotEquals(null, responses[2].tempActionId, 'Contact+Account Opportunity should have tempActionId');
+            
+            // Scenario 4: Contact-only + Task → Allowed
+            System.assertEquals('Successfully created the temp action!', responses[3].message, 
+                               'Contact-only Task should succeed');
+            System.assertNotEquals(null, responses[3].tempActionId, 'Contact-only Task should have tempActionId');
         }
-        insert con;
-        return con;
     }
-
-    //Creates and inserts a Task.
-    public static Task createTask(Map<String, Object> taskInputMap){
-        Task t = new Task(
-            Subject = 'Default Task',
-            Status = 'Not Started',
-            Priority = 'Normal',
-            Description = 'This is to createtask',
-            ActivityDate = Date.today()
-        );
-        if(taskInputMap != null){
-            for (String key : taskInputMap.keySet()){
-                t.put(key, taskInputMap.get(key));
-            }
-        }
-        insert t; 
-        return t;
-    }
-
-    // Creates and inserts an Opportunity.
-    public static Opportunity createOpportunity(Map<String, Object> oppInputMap){
-        Opportunity opp = new Opportunity(
-            Name = 'Default Opp',
-            StageName = 'Pre-Discovery',
-            CloseDate = Date.today().addDays(90),
-            LeadSource = 'Other',
-            Legacy_Id__c = 'Agentforce'
-        );
-        if(oppInputMap != null){
-            for (String key : oppInputMap.keySet()){
-                opp.put(key, oppInputMap.get(key));
-            }
-        }
-        insert opp;
-        return opp;
-    }
-
-    /**Create Meeting Note Action custom object record **/
-    public static AF_Meeting_Note_Action__c createMeetingNoteAction(String meetingNoteId, String objName, String status, String actionName, String recordId){
-        AF_Meeting_Note_Action__c mna = new AF_Meeting_Note_Action__c(
-            AF_Meeting_Note__c = meetingNoteId,
-            AF_Object_Name__c = objName,
-            AF_Status__c = status,
-            AF_Action_Name__c = actionName,
-            AF_Record_ID__c = recordId
-        );
-        insert mna;
-        return mna;
-    }
-
-    /**Create User object record **/
-    public static User createUser(Map<String, Object> userInputMap) {
-        Profile p = [SELECT Id FROM Profile WHERE Name = 'Standard User' LIMIT 1];
-        User u = new User(
-            Alias = 'tusr',
-            Email = 'user'+System.currentTimeMillis()+'@testorg.com',
-            EmailEncodingKey = 'UTF-8',
-            LastName = 'TestUser',
-            LanguageLocaleKey = 'en_US',
-            LocaleSidKey = 'en_US',
-            ProfileId = p.Id,
-            TimeZoneSidKey = 'America/New_York',
-            Username = 'user'+System.currentTimeMillis()+'@testorg.com'
-        );
-        if (userInputMap != null) {
-            for (String key : userInputMap.keySet()) {
-                u.put(key, userInputMap.get(key));
-            }
-        }
-        insert u;
-        return u;
-    }
-
-    // Create Meeting Note Action Data custom object record **/
-    public static AF_Meeting_Note_Action_Data__c createMeetingNoteActionData(Id actionId, String fieldName, String val) {
-        AF_Meeting_Note_Action_Data__c data = new AF_Meeting_Note_Action_Data__c(
-            AF_Meeting_Note_Action__c = actionId,
-            AF_Field_Name__c = fieldName,
-            AF_Field_Value__c = val
-        );
-        insert data;
-        return data;
-    }
-}
-
