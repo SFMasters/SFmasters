@@ -144,36 +144,30 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                 if (fieldDescribe.getType() == Schema.DisplayType.Picklist) {
                     picklistValues = new List<String>();
                     
-                    // Check if this is Product Group field on Opportunity - apply record type filtering
+                    // Check if this is Product Group field on Opportunity - apply native record type filtering
                     if (objectName == 'Opportunity' && caseSensitiveFieldName == 'Product_Group__c') {
                         try {
-                            // Get record type ID for Financial Solutions Opportunity
-                            Map<String, Schema.RecordTypeInfo> rtMap = Schema.SObjectType.Opportunity.getRecordTypeInfosByDeveloperName();
-                            if (rtMap.containsKey('Financial_Solutions_Opportunity')) {
-                                Id recordTypeId = rtMap.get('Financial_Solutions_Opportunity').getRecordTypeId();
-                                
-                                // APPROACH 1: OPTIMIZED - Direct record type filtering (commented for testing)
-                                // Uncomment this block if getPicklistValues(recordTypeId) method is available in your org
-                                /*
-                                List<Schema.PicklistEntry> recordTypeSpecificEntries = fieldDescribe.getPicklistValues(recordTypeId);
-                                for (Schema.PicklistEntry entry : recordTypeSpecificEntries) {
-                                    if (entry.isActive()) {
-                                        picklistValues.add(entry.getLabel());
-                                    }
+                            // Find the Record Type ID by developer name using native approach
+                            Id recordTypeId = null;
+                            for (Schema.RecordTypeInfo rtInfo : describeResult.getRecordTypeInfos()) {
+                                if (rtInfo.getDeveloperName() == 'Financial_Solutions_Opportunity') {
+                                    recordTypeId = rtInfo.getRecordTypeId();
+                                    break;
                                 }
-                                */
-                                
-                                // APPROACH 2: CONSERVATIVE - Standard filtering with record type context (currently active)
-                                // This approach gets all values but relies on Salesforce's record type configuration
-                                // When Product Group field is configured for Financial_Solutions_Opportunity record type,
-                                // this should automatically return only the enabled values for that record type
+                            }
+                            
+                            if (recordTypeId != null) {
+                                // NATIVE SALESFORCE RECORD TYPE FILTERING using isValidFor()
+                                // This is the correct way to filter picklist values by record type
                                 for (Schema.PicklistEntry entry : fieldDescribe.getPicklistValues()) {
-                                    if (entry.isActive()) {
+                                    if (entry.isActive() && entry.isValidFor(recordTypeId)) {
                                         picklistValues.add(entry.getLabel());
                                     }
                                 }
                                 
-                                System.debug('Product_Group__c picklist values for Financial_Solutions_Opportunity: ' + picklistValues.size() + ' values');
+                                System.debug('Product_Group__c filtered using native isValidFor(): ' + picklistValues.size() + ' values');
+                                System.debug('Record Type ID: ' + recordTypeId);
+                                System.debug('Filtered values: ' + picklistValues);
                                 
                             } else {
                                 System.debug('Financial_Solutions_Opportunity record type not found');
@@ -185,7 +179,7 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                                 }
                             }
                         } catch (Exception e) {
-                            System.debug('Error getting record type specific picklist values: ' + e.getMessage());
+                            System.debug('Error filtering Product_Group__c values with isValidFor(): ' + e.getMessage());
                             // Fallback to all values on error
                             for (Schema.PicklistEntry picklistEntry : fieldDescribe.getPicklistValues()) {
                                 if (picklistEntry.isActive()) {
