@@ -1,13 +1,2 @@
-Remote Site Name: OrgAPIDomain
-Remote Site URL: https://sdev2512.bacm1domadv.sandbox.my-salesforce.com
-Active:  Checked
-Step 2: Try Different Authentication
-Replace authentication in getRecordTypePicklistValues method:
-
-Change:
-
-req.setHeader('Authorization', 'Bearer ' + UserInfo.getSessionId());
-To:
-
-String sessionId = UserInfo.getSessionId();
-req.setHeader('Authorization', 'OAuth ' + sessionId);
+// Add debug for session ID (first 10 characters only for security)
+System.debug('Session ID prefix: ' + (String.isNotBlank(sessionId) ? sessionId.substring(0, 10) + '...' : 'NULL'));
