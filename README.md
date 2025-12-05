@@ -1,122 +1,9 @@
-/**************************************************************************************************************************************\
-@ Description: * Provides metadata information about Salesforce objects for AI processing
-* Extracts and formats object fields, picklist values, and component metadata
-@ Author: Sujaanaa (Deloitte USI)   		          
-@ Date : 24-Oct-2025	  		      
-@ Test Class:   
-/************************************************************************************************************************************
-* ModificationLog     Developer            CodeReview             Date                   Description   
-  1.0                 Sujaanaa                                                         Initial version
-  1.1                 Codify                                     Dec-2025              Added record type-aware picklist filtering for Product_Group__c
-*************************************************************************************************************************************/
-global with sharing class AF_MeetingNoteMetadataGrounding {
+Remote Site URL:
+https://.*\.my\.salesforce\.com
 
-    public static final String CURRENT_USER_ID_LABEL = 'Current User ID: ';
-    public static final String CURRENT_DATETIME_LABEL = 'Current DateTime: ';
-    public static final String RELATED_OBJECT_API_NAME_LABEL = 'Related Object API Name: ';
-    public static final String METADATA_LABEL = 'Here is the metadata for ';
-    public static final String KEY_FIELDS_LABEL = ' - Key Fields\n';
-    public static final String INVALID_OBJECT_NAME_ERROR = 'Invalid object name: ';
+Remote Site Setting to allow HTTP callouts to current org for UI API access
 
-    // Response wrapper containing the formatted metadata prompt
-    global class Response {
-        @InvocableVariable
-        global String Prompt;
-    }    
-
-    //Request wrapper containing task and related object information
-    global class Request {
-        @InvocableVariable(required=true)
-        global String Task_Id;
-        
-        @InvocableVariable
-        global String Related_Object_Id;
-    }
-    
-    // This fetches the metadata for all supported objects 
-    @InvocableMethod(Label='Metadata Grounding' description='Gets metadata for supported objects' category='AI')
-    global static List<Response> getMetadataGrounding(List<Request> requests) {
-        List<Response> results = new List<Response>();
-        Response result = new Response();
-        result.Prompt = '';
-        
-        String taskId = requests[0].Task_Id;
-        Task task;
-        if (String.isNotBlank(taskId)) {
-            task = [SELECT Id, CreatedById FROM Task WHERE Id =: taskId LIMIT 1];
-        } 
-
-        List<AF_MeetingNote_Action_Supported_Metadata__mdt> objectGroundingSettings = getSupportedObjectGroundings();
-        for (AF_MeetingNote_Action_Supported_Metadata__mdt setting: objectGroundingSettings) {
-            List<String> fields = setting.Supported_Fields__c.split(',');
-            List<String> cleanFields = new List<String>();
-            for (String field : fields) {
-                cleanFields.add(field.trim());
-            }
-            if (fields.size() == 0) {
-                continue;
-            }
-            result.Prompt += getObjectEmbedding(setting.Object_API_Name__c, cleanFields);
-        }
-        
-        if (task != null) {
-            Id currentUserId = task.createdById;
-            result.Prompt += CURRENT_USER_ID_LABEL + currentUserId + '\n\n';
-        }
-        
-        String isoNow = Datetime.now().formatGMT('yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
-        result.Prompt += CURRENT_DATETIME_LABEL + isoNow + '\n\n';
-
-        String relatedObjectId = requests[0].Related_Object_Id;  
-        if(String.isNotBlank(relatedObjectId)) { 
-            String objectApiName = getRelatedObjectAPIName(relatedObjectId);
-            if (String.isNotBlank(objectApiName)) {
-                result.Prompt += RELATED_OBJECT_API_NAME_LABEL + objectApiName + '\n\n';
-            }
-        }        
-        results.add(result);
-        return results;
-    }    
-  
-    //Gets the API name of an object from its record ID
-    private static String getRelatedObjectAPIName(String relatedObjectId) {
-        Id recordId = (Id) relatedObjectId;
-        return recordId.getSobjectType().getDescribe().getLocalName();
-    }
-    
-    //Gets all the AF_MeetingNote_Action_Supported_Metadata__mdt data
-    private static List<AF_MeetingNote_Action_Supported_Metadata__mdt> getSupportedObjectGroundings() {
-        return [SELECT Object_API_Name__c, Supported_Fields__c FROM AF_MeetingNote_Action_Supported_Metadata__mdt];
-    }    
-
-    //Generates a formatted metadata embedding for an object
-    private static String getObjectEmbedding(String objectName, List<String> supportedFields) {
-        MetadataExtractor extractor = new MetadataExtractor();
-        List<FieldDetails> fields = extractor.getObjectFields(objectName, supportedFields);
-        String groundings = objectName + KEY_FIELDS_LABEL +
-            METADATA_LABEL + objectName + ':\n' +
-            '```\n' +
-            '<' + objectName + '_metadata>' + JSON.serializePretty(fields, true) + '</' + objectName + '_metadata>' +
-            '```  \n \n';
-        return groundings;
-    }    
-
-    //Inner class to store detailed field metadata
-    private class FieldDetails {
-        public String fieldName;
-        public String fieldType;
-        public String fieldDescription;
-        public List<String> picklistValues;
-        
-        public FieldDetails(String fieldName, String fieldType, String fieldDescription, List<String> picklistValues) {
-            this.fieldName = fieldName;
-            this.fieldType = fieldType;
-            this.fieldDescription = fieldDescription;
-            this.picklistValues = picklistValues;
-        }
-    }
-    
-   //Helper class to extract field metadata from Salesforce objects
+//Helper class to extract field metadata from Salesforce objects
     private class MetadataExtractor {       
         public List<FieldDetails> getObjectFields(String objectName, List<String> supportedFields) {
             List<FieldDetails> fieldDetailsList = new List<FieldDetails>();            
@@ -144,10 +31,10 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                 if (fieldDescribe.getType() == Schema.DisplayType.Picklist) {
                     picklistValues = new List<String>();
                     
-                    // Check if this is Product Group field on Opportunity - apply native record type filtering
+                    // Check if this is Product Group field on Opportunity - apply UI API dynamic filtering
                     if (objectName == 'Opportunity' && caseSensitiveFieldName == 'Product_Group__c') {
                         try {
-                            // Find the Record Type ID by developer name using native approach
+                            // Find the Record Type ID by developer name
                             Id recordTypeId = null;
                             for (Schema.RecordTypeInfo rtInfo : describeResult.getRecordTypeInfos()) {
                                 if (rtInfo.getDeveloperName() == 'Financial_Solutions_Opportunity') {
@@ -157,18 +44,24 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                             }
                             
                             if (recordTypeId != null) {
-                                // NATIVE SALESFORCE RECORD TYPE FILTERING using isValidFor()
-                                // This is the correct way to filter picklist values by record type
-                                for (Schema.PicklistEntry entry : fieldDescribe.getPicklistValues()) {
-                                    if (entry.isActive() && entry.isValidFor(recordTypeId)) {
-                                        picklistValues.add(entry.getLabel());
+                                // DYNAMIC UI API APPROACH - Get record type specific picklist values via HTTP
+                                List<String> dynamicValues = getRecordTypePicklistValues(objectName, caseSensitiveFieldName, recordTypeId);
+                                
+                                if (!dynamicValues.isEmpty()) {
+                                    // Use dynamic values from UI API
+                                    picklistValues.addAll(dynamicValues);
+                                    System.debug('Product_Group__c filtered using UI API: ' + picklistValues.size() + ' dynamic values');
+                                    System.debug('Record Type ID: ' + recordTypeId);
+                                    System.debug('Dynamic values: ' + picklistValues);
+                                } else {
+                                    System.debug('UI API returned no values, using fallback');
+                                    // Fallback to all values if UI API returns nothing
+                                    for (Schema.PicklistEntry entry : fieldDescribe.getPicklistValues()) {
+                                        if (entry.isActive()) {
+                                            picklistValues.add(entry.getLabel());
+                                        }
                                     }
                                 }
-                                
-                                System.debug('Product_Group__c filtered using native isValidFor(): ' + picklistValues.size() + ' values');
-                                System.debug('Record Type ID: ' + recordTypeId);
-                                System.debug('Filtered values: ' + picklistValues);
-                                
                             } else {
                                 System.debug('Financial_Solutions_Opportunity record type not found');
                                 // Fallback to all values if record type not found
@@ -179,7 +72,7 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                                 }
                             }
                         } catch (Exception e) {
-                            System.debug('Error filtering Product_Group__c values with isValidFor(): ' + e.getMessage());
+                            System.debug('Error filtering Product_Group__c values with UI API: ' + e.getMessage());
                             // Fallback to all values on error
                             for (Schema.PicklistEntry picklistEntry : fieldDescribe.getPicklistValues()) {
                                 if (picklistEntry.isActive()) {
@@ -201,7 +94,77 @@ global with sharing class AF_MeetingNoteMetadataGrounding {
                 fieldDetailsList.add(fieldDetails);
             }
             
-            return fieldDetailsList;
+                        return fieldDetailsList;
         }
     }
-}
+    
+    /**
+     * Method name      : getRecordTypePicklistValues
+     * @description     : Gets picklist values for specific record type using UI API
+     * @return          : List<String>
+     * @param           : String objectName, String fieldName, Id recordTypeId
+     */
+    private static List<String> getRecordTypePicklistValues(String objectName, String fieldName, Id recordTypeId) {
+        List<String> recordTypeValues = new List<String>();
+        
+        try {
+            // Construct UI API endpoint for record type specific picklist values
+            String endpoint = URL.getOrgDomainUrl().toExternalForm() + 
+                            '/services/data/v58.0/ui-api/object-info/' + objectName + 
+                            '/picklist-values/' + recordTypeId + '/' + fieldName;
+            
+            // Create HTTP request
+            HttpRequest req = new HttpRequest();
+            req.setEndpoint(endpoint);
+            req.setHeader('Authorization', 'Bearer ' + UserInfo.getSessionId());
+            req.setHeader('Content-Type', 'application/json');
+            req.setMethod('GET');
+            req.setTimeout(10000); // 10 second timeout
+            
+            // Make the callout
+            Http http = new Http();
+            HttpResponse res = http.send(req);
+            
+            System.debug('UI API Endpoint: ' + endpoint);
+            System.debug('UI API Response Status: ' + res.getStatusCode());
+            System.debug('UI API Response Body: ' + res.getBody());
+            
+            if (res.getStatusCode() == 200) {
+                // Parse the JSON response
+                Map<String, Object> responseBody = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+                
+                // Navigate to the values section
+                if (responseBody.containsKey('values')) {
+                    Map<String, Object> values = (Map<String, Object>) responseBody.get('values');
+                    
+                    // Extract picklist values
+                    for (String valueKey : values.keySet()) {
+                        Map<String, Object> valueInfo = (Map<String, Object>) values.get(valueKey);
+                        
+                        // Check if this value is valid for the record type
+                        if (valueInfo.containsKey('validFor') && valueInfo.containsKey('label')) {
+                            List<Object> validForList = (List<Object>) valueInfo.get('validFor');
+                            String label = (String) valueInfo.get('label');
+                            
+                            // Check if current record type is in the validFor list
+                            if (validForList != null && validForList.contains(recordTypeId)) {
+                                recordTypeValues.add(label);
+                            }
+                        }
+                    }
+                }
+                
+                System.debug('UI API extracted ' + recordTypeValues.size() + ' values: ' + recordTypeValues);
+                
+            } else {
+                System.debug('UI API call failed with status: ' + res.getStatusCode() + ', Body: ' + res.getBody());
+            }
+            
+        } catch (CalloutException e) {
+            System.debug('UI API Callout Exception: ' + e.getMessage());
+        } catch (Exception e) {
+            System.debug('UI API General Exception: ' + e.getMessage());
+        }
+        
+        return recordTypeValues;
+    }
