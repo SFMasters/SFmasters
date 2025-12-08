@@ -1,4 +1,4 @@
- /**
+/**
      * Method name      : getRecordTypePicklistValues
      * @description     : Gets picklist values for specific record type using UI API
      * @return          : List<String>
