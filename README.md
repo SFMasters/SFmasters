@@ -1,69 +1,79 @@
- private class MetadataExtractor {       
-        public List<FieldDetails> getObjectFields(String objectName, List<String> supportedFields) {
-            List<FieldDetails> fieldDetailsList = new List<FieldDetails>();            
+ // US-58: PersonLifeEvent filtering logic - OPTIMIZED to cover uncovered Advisory Individual lines
+    @isTest
+    static void testUS58_PersonLifeEvent_UpdatedFilteringAllScenarios() {
+        User testUser = AF_TestDataFactory.createUser(new Map<String, Object>{'LastName' => 'US58 User'});
+        
+        System.runAs(testUser) {
+            // Standard Account for basic scenarios
+            Account acc = AF_TestDataFactory.createAccount(new Map<String, Object>{'Name' => 'Standard Account'});
+            Contact testContact = AF_TestDataFactory.createContact(new Map<String, Object>{'FirstName' => 'Test'}, acc.Id);
+            Lead testLead = AF_TestDataFactory.createLead(new Map<String, Object>{'FirstName' => 'Test', 'LastName' => 'Lead'});
             
-            Schema.SObjectType sObjectType = Schema.getGlobalDescribe().get(objectName);
-            if (sObjectType == null) {
-                throw new IllegalArgumentException(INVALID_OBJECT_NAME_ERROR + objectName);
-            }
+            // Advisory Individual Account for uncovered lines testing
+            RecordType advisoryRT = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND Name = 'Advisory Individual' LIMIT 1];
+            Account advisoryAccount = AF_TestDataFactory.createAccount(new Map<String, Object>{
+                'Name' => 'Advisory Individual Account', 'RecordTypeId' => advisoryRT.Id
+            });
+            Contact advisoryContact = AF_TestDataFactory.createContact(new Map<String, Object>{'FirstName' => 'Advisory'}, advisoryAccount.Id);
             
-            Schema.DescribeSObjectResult describeResult = sObjectType.getDescribe();
-            Map<String, Schema.SObjectField> fieldMap = describeResult.fields.getMap();
-            
-            for (String fieldName : fieldMap.keySet()) {
-                Schema.SObjectField field = fieldMap.get(fieldName);
-                String caseSensitiveFieldName = field.toString();
-                if (!supportedFields.contains(caseSensitiveFieldName) && supportedFields[0] != '*'){
-                    continue;
-                }
+            // Core test tasks - reduced from 5 to 3 essential ones
+            Task contactOnlyTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Contact-only Meeting', 'WhoId' => testContact.Id, 'WhatId' => null
+            });
+            Task leadOnlyTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Lead-only Meeting', 'WhoId' => testLead.Id, 'WhatId' => null
+            });
+            Task advisoryTask = AF_TestDataFactory.createTask(new Map<String, Object>{
+                'Subject' => 'Advisory Meeting', 'WhoId' => advisoryContact.Id, 'WhatId' => advisoryAccount.Id
+            });
+
+            // Single existing PersonLifeEvent for duplicate testing
+            PersonLifeEvent existingEvent = new PersonLifeEvent(
+                Name = 'Existing Birthday', PrimaryPersonId = advisoryContact.Id, EventType = 'Birthday', EventDate = Date.today()
+            );
+            insert existingEvent;
+
+            // Optimized test data - only essential JSON strings
+            String validEventJSON = JSON.serialize(new List<Object>{new Map<String, Object>{'Name' => 'Valid Event', 'EventType' => 'Anniversary', 'EventDate' => String.valueOf(Date.today())}});
+            String blankEventTypeJSON = JSON.serialize(new List<Object>{new Map<String, Object>{'Name' => 'Blank Event', 'EventType' => '', 'EventDate' => String.valueOf(Date.today())}});
+            String duplicateEventJSON = JSON.serialize(new List<Object>{new Map<String, Object>{'Name' => 'Duplicate Birthday', 'EventType' => 'Birthday', 'EventDate' => String.valueOf(Date.today())}});
+
+            // Focused test requests - 6 key scenarios (reduced from 9)
+            List<AF_MeetingNoteActionCreator.Request> requests = new List<AF_MeetingNoteActionCreator.Request>{
+                // Core filtering scenarios (3)
+                createMeetingNoteActionRequest('PersonLifeEvent', String.valueOf(contactOnlyTask.Id), testContact.Id, 'Contact-only', validEventJSON),
+                createMeetingNoteActionRequest('PersonLifeEvent', String.valueOf(leadOnlyTask.Id), testLead.Id, 'Lead-only', validEventJSON),
+                createMeetingNoteActionRequest('Task', String.valueOf(contactOnlyTask.Id), testContact.Id, 'Task Control', JSON.serialize(new List<Object>{new Map<String, Object>{'Subject' => 'Follow-up'}})),
                 
-                Schema.DescribeFieldResult fieldDescribe = field.getDescribe();
-                String fieldType = fieldDescribe.getType().name();
-                String fieldDescription = fieldDescribe.getInlineHelpText();
-                
-                List<String> picklistValues;
-                if (fieldDescribe.getType() == Schema.DisplayType.Picklist) {
-                    picklistValues = new List<String>();
-                    
-                    // Check if this is Product Group field on Opportunity - use Custom Labels approach
-                    if (objectName == 'Opportunity' && caseSensitiveFieldName == 'Product_Group__c') {
-                        try {
-                            // CUSTOM LABELS APPROACH - Restrict agent to only allowed values (e.g., 15 out of 30 total)
-                            String labelValues = System.Label.Financial_Solutions_Product_Groups;
-                            if (String.isNotBlank(labelValues)) {
-                                // Split comma-separated values from Custom Label
-                                List<String> allowedValues = labelValues.split(',');
-                                // Trim whitespace from each value (handles spacing after commas)
-                                for (String value : allowedValues) {
-                                    picklistValues.add(value.trim());
-                                }
-                                System.debug('Product_Group__c restricted to Custom Label values: ' + picklistValues.size() + ' out of total available');
-                                System.debug('Allowed values: ' + picklistValues);
-                            }
-                            // No else block - if Custom Label is empty, agent gets no values (intentional restriction)
-                        } catch (Exception e) {
-                            System.debug('Error filtering Product_Group__c values with Custom Labels: ' + e.getMessage());
-                            // Fallback to all values on error
-                            for (Schema.PicklistEntry picklistEntry : fieldDescribe.getPicklistValues()) {
-                                if (picklistEntry.isActive()) {
-                                    picklistValues.add(picklistEntry.getLabel());
-                                }
-                            }
-                        }
-                    } else {
-                        // Default behavior for all other fields - unchanged
-                        for (Schema.PicklistEntry picklistEntry : fieldDescribe.getPicklistValues()) {
-                            if (picklistEntry.isActive()) {
-                                picklistValues.add(picklistEntry.getLabel());
-                            }
-                        }
-                    }
-                }
-                
-                FieldDetails fieldDetails = new FieldDetails(caseSensitiveFieldName, fieldType, fieldDescription, picklistValues);
-                fieldDetailsList.add(fieldDetails);
-            }
+                // Advisory Individual scenarios for uncovered lines (3)
+                createMeetingNoteActionRequest('PersonLifeEvent', String.valueOf(advisoryTask.Id), advisoryContact.Id, 'Advisory Valid', validEventJSON),
+                createMeetingNoteActionRequest('PersonLifeEvent', String.valueOf(advisoryTask.Id), advisoryContact.Id, 'Advisory Blank EventType', blankEventTypeJSON),
+                createMeetingNoteActionRequest('PersonLifeEvent', String.valueOf(advisoryTask.Id), advisoryContact.Id, 'Advisory Duplicate', duplicateEventJSON)
+            };
+
+            Test.startTest();
+            List<AF_MeetingNoteActionCreator.Response> responses = AF_MeetingNoteActionCreator.createAction(requests);
+            Test.stopTest();
+
+            // Optimized assertions - focused on key validation points
+            System.assertEquals(6, responses.size(), 'Should have 6 responses');
             
-                        return fieldDetailsList;
+            // Core filtering validation
+            System.assert(responses[0].message.contains('Skipped: PersonLifeEvent creation not allowed'), 'Contact-only should be blocked');
+            System.assert(responses[1].message.contains('Skipped: WhoId is a Lead'), 'Lead should be blocked');
+            System.assertEquals('Successfully created the temp action!', responses[2].message, 'Task should succeed');
+            
+            // Advisory Individual scenarios - CRITICAL for covering uncovered lines
+            System.assertEquals('Successfully created the temp action!', responses[3].message, 'Advisory valid event should succeed');
+            System.assert(responses[4].message.contains('Skipped: Event type is blank'), 'Blank EventType should trigger SKIP_EVENT_TYPE_BLANK');
+            System.assert(responses[5].message.contains('Skipped: PersonLifeEvent already exists'), 'Duplicate should trigger SKIP_MILESTONE_EXIST');
+            
+            // Verify tempActionId patterns
+            System.assertEquals(null, responses[0].tempActionId, 'Blocked requests should have null tempActionId');
+            System.assertEquals(null, responses[1].tempActionId, 'Blocked requests should have null tempActionId');
+            System.assertNotEquals(null, responses[2].tempActionId, 'Successful requests should have tempActionId');
+            System.assertNotEquals(null, responses[3].tempActionId, 'Successful requests should have tempActionId');
+            System.assertEquals(null, responses[4].tempActionId, 'Blocked requests should have null tempActionId');
+            System.assertEquals(null, responses[5].tempActionId, 'Blocked requests should have null tempActionId');
         }
     }
